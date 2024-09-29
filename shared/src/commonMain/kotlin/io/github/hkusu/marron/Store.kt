@@ -15,28 +15,31 @@ import kotlinx.coroutines.launch
 // ViewModel で保持
 class MainStore(
     coroutineScope: CoroutineScope,
-    ) : Store<MainState, MainAction, MainEvent>(
+) : Store<MainState, MainAction, MainEvent>(
     initialState = MainState.Initial,
-    coroutineScope = coroutineScope
+    coroutineScope = coroutineScope,
 ) {
     override suspend fun getState(state: MainState, action: MainAction, emmit: EventEmmit<MainEvent>): MainState {
-        return when(state) {
+        return when (state) {
             is MainState.Loading -> {
-                when(action) {
+                when (action) {
                     MainAction.OnClicked -> {
                         state
                     }
+
                     MainAction.OnLoaded -> {
                         state
                     }
                 }
             }
+
             MainState.Initial -> {
-                when(action) {
+                when (action) {
                     MainAction.OnClicked -> {
                         emmit(MainEvent.OnLoadedClicked)
                         state
                     }
+
                     else -> state
                 }
             }
@@ -44,9 +47,9 @@ class MainStore(
     }
 }
 
-abstract class Store<S: State, A: Action, E: Event>(
+abstract class Store<S : State, A : Action, E : Event>(
     initialState: S,
-    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
 ) {
     private val _state: MutableStateFlow<S> = MutableStateFlow(initialState)
     val state = _state.asStateFlow()
@@ -76,21 +79,20 @@ abstract class Store<S: State, A: Action, E: Event>(
     }
 }
 
-
 sealed interface State
 sealed interface Action
 sealed interface Event
 
-sealed interface MainState: State {
-    data class Loading(val hoge: String): MainState
-    data object Initial: MainState
+sealed interface MainState : State {
+    data class Loading(val hoge: String) : MainState
+    data object Initial : MainState
 }
 
-sealed interface MainAction: Action {
-     data object OnClicked: MainAction
-    data object OnLoaded: MainAction
+sealed interface MainAction : Action {
+    data object OnClicked : MainAction
+    data object OnLoaded : MainAction
 }
 
-sealed interface MainEvent: Event {
-    data object OnLoadedClicked: MainEvent
+sealed interface MainEvent : Event {
+    data object OnLoadedClicked : MainEvent
 }
