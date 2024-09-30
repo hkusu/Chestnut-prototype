@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-// ViewModel で保持（ KMP プロジェクトでない場合は ViewModel に implement してもよし
+// ViewModel で保持（ KMP プロジェクトでない場合は ViewModel に Store を implement してもよし
 class MainStore(
     // UseCase や Repository を inject
     //   getHogeListUseCase: GetHogeListUseCase,
