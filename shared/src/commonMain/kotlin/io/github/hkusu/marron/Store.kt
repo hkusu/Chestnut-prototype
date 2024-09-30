@@ -82,7 +82,7 @@ abstract class Store<S : State, A : Action, E : Event>(
         enterAction?.let { dispatch(it) }
     }
 
-    fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
+    open fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
         val prevState = _state.value
         coroutineScope.launch {
             val nextState = onDispatched(prevState, action) { event ->
@@ -106,7 +106,7 @@ abstract class Store<S : State, A : Action, E : Event>(
     }
 
     // viseModelScope のような auto close の CoroutinesScope 以外の場合に利用
-    fun dispose() {
+    open fun dispose() {
         coroutineScope.cancel()
     }
 
