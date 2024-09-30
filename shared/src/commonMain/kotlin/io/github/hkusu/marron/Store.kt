@@ -80,12 +80,17 @@ interface Store<S : State, A : Action, E : Event> {
 
     fun dispose()
 
-    fun collect(
-        onState: (S) -> Unit,
-        onEvent: (E) -> Unit,
-    ): Job
+    fun collect(onState: OnState<S>, onEvent: OnEvent<E>): Job
 
     fun interface EventEmmit<E> {
+        suspend operator fun invoke(event: E)
+    }
+
+    fun interface OnState<S> {
+        suspend operator fun invoke(event: S)
+    }
+
+    fun interface OnEvent<E> {
         suspend operator fun invoke(event: E)
     }
 }
@@ -140,7 +145,7 @@ open class DefaultStore<S : State, A : Action, E : Event>(
         coroutineScope.cancel()
     }
 
-    override fun collect(onState: (S) -> Unit, onEvent: (E) -> Unit): Job {
+    override fun collect(onState: Store.OnState<S>, onEvent: Store.OnEvent<E>): Job {
         return coroutineScope.launch {
             launch { state.collect { onState(it) } }
             launch { event.collect { onEvent(it) } }
