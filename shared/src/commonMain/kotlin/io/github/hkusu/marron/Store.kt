@@ -1,15 +1,17 @@
 package io.github.hkusu.marron
 
+import io.github.hkusu.marron.Store.EventEmmit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -19,7 +21,7 @@ class MainStore(
     //   getHogeListUseCase: GetHogeListUseCase,
     //   setgFugaUseCase: SetFugaUseCase,
     coroutineScope: CoroutineScope, // 基本は viewModelScope を渡す想定
-) : Store<MainState, MainAction, MainEvent>(
+) : DefaultStore<MainState, MainAction, MainEvent>(
     initialState = MainState.Initial,
     enterAction = MainAction.Enter,
     exitAction = MainAction.Exit,
@@ -64,25 +66,48 @@ class MainStore(
     } ?: state
 }
 
-abstract class Store<S : State, A : Action, E : Event>(
+interface Store<S : State, A : Action, E : Event> {
+    val state: StateFlow<S>
+
+    val event: Flow<E>
+
+    val currentState: S
+
+    fun dispatch(action: A)
+
+    suspend fun onDispatched(state: S, action: A, emmit: EventEmmit<E>): S
+
+    fun dispose()
+
+    fun collect(
+        onState: (S) -> Unit,
+        onEvent: (E) -> Unit,
+    ): Job
+
+    fun interface EventEmmit<E> {
+        suspend operator fun invoke(event: E)
+    }
+}
+
+open class DefaultStore<S : State, A : Action, E : Event>(
     initialState: S,
     private val enterAction: A?,
     private val exitAction: A?,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
-) {
+) : Store<S, A, E> {
     private val _state: MutableStateFlow<S> = MutableStateFlow(initialState)
-    val state = _state.asStateFlow() // Compose で購読
+    override val state: StateFlow<S> = _state // Compose で購読
 
-    private val _event: MutableSharedFlow<Event> = MutableSharedFlow()
-    val event = _event.asSharedFlow() // Compose で購読
+    private val _event: MutableSharedFlow<E> = MutableSharedFlow()
+    override val event: Flow<E> = _event // Compose で購読
 
-    protected abstract suspend fun onDispatched(state: S, action: A, emmit: EventEmmit<E>): S
+    override val currentState: S get() = _state.value
 
     init {
         enterAction?.let { dispatch(it) }
     }
 
-    open fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
+    override fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
         val prevState = _state.value
         coroutineScope.launch {
             val nextState = onDispatched(prevState, action) { event ->
@@ -105,13 +130,20 @@ abstract class Store<S : State, A : Action, E : Event>(
         }
     }
 
+    override suspend fun onDispatched(state: S, action: A, emmit: Store.EventEmmit<E>): S {
+        TODO("You should override")
+    }
+
     // viseModelScope のような auto close の CoroutinesScope 以外の場合に利用
-    open fun dispose() {
+    override fun dispose() {
         coroutineScope.cancel()
     }
 
-    fun interface EventEmmit<E> {
-        suspend operator fun invoke(event: E)
+    override fun collect(onState: (S) -> Unit, onEvent: (E) -> Unit): Job {
+        return coroutineScope.launch {
+            launch { state.collect { onState(it) } }
+            launch { event.collect { onEvent(it) } }
+        }
     }
 }
 
