@@ -25,52 +25,45 @@ class MainStore(
     exitAction = MainAction.Exit,
     coroutineScope = coroutineScope,
 ) {
-    override suspend fun onDispatched(state: MainState, action: MainAction, emmit: EventEmmit<MainEvent>): MainState? {
-        return when (state) {
-            MainState.Initial -> {
-                when (action) {
-                    MainAction.Enter -> {
-                        // すぐさま Loading に
-                        MainState.Loading
-                    }
-
-                    else -> null
-                }
+    override suspend fun onDispatched(state: MainState, action: MainAction, emmit: EventEmmit<MainEvent>): MainState = when (state) {
+        MainState.Initial -> when (action) {
+            MainAction.Enter -> {
+                // すぐさま Loading に
+                MainState.Loading
             }
 
-            MainState.Loading -> {
-                when (action) {
-                    MainAction.Enter -> {
-                        // UseCase や Repository からデータ取得
-                        delay(5_000)
-                        // データを読み終わったら Stable に
-                        MainState.Stable(listOf())
-                    }
-
-                    else -> null
-                }
-            }
-
-            is MainState.Stable -> {
-                when (action) {
-                    MainAction.Enter -> {
-                        // Compose で state.dataList のデータを画面へ描画する
-
-                        // イベント発行例
-                        emmit(MainEvent.ShowToast("データがロードされました"))
-                        null
-                    }
-
-                    is MainAction.Click -> {
-                        // state の更新は data class の copy で
-                        state.copy(clickCounter = state.clickCounter + 1)
-                    }
-
-                    else -> null
-                }
-            }
+            else -> null
         }
-    }
+
+        MainState.Loading -> when (action) {
+            MainAction.Enter -> {
+                // UseCase や Repository からデータ取得
+                delay(5_000)
+                // データを読み終わったら Stable に
+                MainState.Stable(listOf())
+            }
+
+            else -> null
+        }
+
+        is MainState.Stable -> when (action) {
+            MainAction.Enter -> {
+                // Compose で state.dataList のデータを画面へ描画する
+
+                // イベント発行例
+                emmit(MainEvent.ShowToast("データがロードされました"))
+                null
+            }
+
+            is MainAction.Click -> {
+                // state の更新は data class の copy で
+                state.copy(clickCounter = state.clickCounter + 1)
+            }
+
+            else -> null
+        }
+
+    } ?: state
 }
 
 abstract class Store<S : State, A : Action, E : Event>(
@@ -85,7 +78,7 @@ abstract class Store<S : State, A : Action, E : Event>(
     private val _event: MutableSharedFlow<Event> = MutableSharedFlow()
     val event = _event.asSharedFlow() // Compose で購読
 
-    protected abstract suspend fun onDispatched(state: S, action: A, emmit: EventEmmit<E>): S?
+    protected abstract suspend fun onDispatched(state: S, action: A, emmit: EventEmmit<E>): S
 
     init {
         enterAction?.let { dispatch(it) }
@@ -94,14 +87,16 @@ abstract class Store<S : State, A : Action, E : Event>(
     fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
         val prevState = _state.value
         coroutineScope.launch {
-            val nextState = onDispatched(prevState, action) {
-                _event.emit(it)
-            } ?: return@launch
-
-            if (action == exitAction) return@launch
+            val nextState = onDispatched(prevState, action) { event ->
+                _event.emit(event)
+            }
 
             if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
-                exitAction?.let { dispatch(it) }
+                exitAction?.let {
+                    onDispatched(prevState, it) { event ->
+                        _event.emit(event)
+                    }
+                }
             }
 
             _state.update { nextState }
