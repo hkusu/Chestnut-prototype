@@ -35,7 +35,7 @@ class MainStore(
             else -> null
         }
 
-        MainState.Loading -> when (action) {
+        MainState.Loading -> when (action) { // Compose でローディング中の旨の画面を表示
             MainAction.Enter -> {
                 // UseCase や Repository からデータ取得
                 delay(5_000)
@@ -46,10 +46,8 @@ class MainStore(
             else -> null
         }
 
-        is MainState.Stable -> when (action) {
+        is MainState.Stable -> when (action) { // Compose で state.dataList のデータを画面へ描画する
             MainAction.Enter -> {
-                // Compose で state.dataList のデータを画面へ描画する
-
                 // イベント発行例
                 emmit(MainEvent.ShowToast("データがロードされました"))
                 null
