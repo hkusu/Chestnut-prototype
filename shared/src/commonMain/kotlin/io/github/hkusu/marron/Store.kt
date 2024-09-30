@@ -66,6 +66,7 @@ class MainStore(
     } ?: state
 }
 
+// MainStore 等を状況に応じてモックできるようにする
 interface Store<S : State, A : Action, E : Event> {
     val state: StateFlow<S>
 
