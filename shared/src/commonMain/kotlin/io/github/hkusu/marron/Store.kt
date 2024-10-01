@@ -1,6 +1,6 @@
 package io.github.hkusu.marron
 
-import io.github.hkusu.marron.Store.EventEmmit
+import io.github.hkusu.marron.Store.EventEmit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -27,9 +27,19 @@ class MainStore(
     initialState = MainState.Initial,
     enterAction = MainAction.Enter,
     exitAction = MainAction.Exit,
+    middlewares = listOf(
+        object : Middleware<MainState, MainAction, MainEvent> {
+            override fun onDispatched(state: MainState, action: MainAction) {
+            }
+
+            override fun onEventEmitted(state: MainState, action: MainAction, event: MainEvent) {
+                println("event emitted")
+            }
+        },
+    ),
     coroutineScope = coroutineScope,
 ) {
-    override suspend fun onDispatched(state: MainState, action: MainAction, emmit: EventEmmit<MainEvent>): MainState = when (state) {
+    override suspend fun onDispatched(state: MainState, action: MainAction, emit: EventEmit<MainEvent>): MainState = when (state) {
         MainState.Initial -> when (action) {
             MainAction.Enter -> {
                 // すぐさま Loading に
@@ -53,7 +63,7 @@ class MainStore(
         is MainState.Stable -> when (action) { // Compose で state.dataList のデータを画面へ描画する
             MainAction.Enter -> {
                 // イベント発行例
-                emmit(MainEvent.ShowToast("データがロードされました"))
+                emit(MainEvent.ShowToast("データがロードされました"))
                 null
             }
 
@@ -78,13 +88,13 @@ interface Store<S : State, A : Action, E : Event> {
 
     fun dispatch(action: A)
 
-    suspend fun onDispatched(state: S, action: A, emmit: EventEmmit<E>): S
+    suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S
 
     fun dispose()
 
     fun collect(onState: OnState<S>, onEvent: OnEvent<E>): Job
 
-    fun interface EventEmmit<E> {
+    fun interface EventEmit<E> {
         suspend operator fun invoke(event: E)
     }
 
@@ -101,6 +111,7 @@ open class DefaultStore<S : State, A : Action, E : Event>(
     initialState: S,
     private val enterAction: A?,
     private val exitAction: A?,
+    private val middlewares: List<Middleware<S, A, E>> = emptyList(),
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
 ) : Store<S, A, E> {
     private val _state: MutableStateFlow<S> = MutableStateFlow(initialState)
@@ -125,7 +136,7 @@ open class DefaultStore<S : State, A : Action, E : Event>(
         }
     }
 
-    override suspend fun onDispatched(state: S, action: A, emmit: Store.EventEmmit<E>): S {
+    override suspend fun onDispatched(state: S, action: A, emit: Store.EventEmit<E>): S {
         TODO("You should override")
     }
 
@@ -146,12 +157,18 @@ open class DefaultStore<S : State, A : Action, E : Event>(
 
         val nextState = onDispatched(prevState, action) { event ->
             _event.emit(event)
+            middlewares.forEach {
+                it.onEventEmitted(prevState, action, event)
+            }
         }
 
         if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
-            exitAction?.let {
-                onDispatched(prevState, it) { event ->
+            exitAction?.let { exitAction ->
+                onDispatched(prevState, exitAction) { event ->
                     _event.emit(event)
+                    middlewares.forEach {
+                        it.onEventEmitted(prevState, action, event)
+                    }
                 }
             }
         }
@@ -187,4 +204,9 @@ sealed interface MainAction : Action {
 
 sealed interface MainEvent : Event {
     data class ShowToast(val message: String) : MainEvent
+}
+
+interface Middleware<S : State, A : Action, E : Event> {
+    fun onDispatched(state: S, action: A)
+    fun onEventEmitted(state: S, action: A, event: E)
 }
