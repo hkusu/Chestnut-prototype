@@ -120,25 +120,7 @@ open class DefaultStore<S : State, A : Action, E : Event>(
     override fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
         coroutineScope.launch {
             mutex.withLock {
-                val prevState = _state.value
-
-                val nextState = onDispatched(prevState, action) { event ->
-                    _event.emit(event)
-                }
-
-                if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
-                    exitAction?.let {
-                        onDispatched(prevState, it) { event ->
-                            _event.emit(event)
-                        }
-                    }
-                }
-
-                _state.update { nextState }
-
-                if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
-                    enterAction?.let { dispatch(it) }
-                }
+                changeState(action)
             }
         }
     }
@@ -156,6 +138,28 @@ open class DefaultStore<S : State, A : Action, E : Event>(
         return coroutineScope.launch {
             launch { state.collect { onState(it) } }
             launch { event.collect { onEvent(it) } }
+        }
+    }
+
+    private suspend fun changeState(action: A) {
+        val prevState = _state.value
+
+        val nextState = onDispatched(prevState, action) { event ->
+            _event.emit(event)
+        }
+
+        if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
+            exitAction?.let {
+                onDispatched(prevState, it) { event ->
+                    _event.emit(event)
+                }
+            }
+        }
+
+        _state.update { nextState }
+
+        if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
+            enterAction?.let { changeState(it) }
         }
     }
 }
