@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 // ViewModel で保持（ KMP プロジェクトでない場合は ViewModel に Store を implement してもよし
 class MainStore(
@@ -109,29 +111,34 @@ open class DefaultStore<S : State, A : Action, E : Event>(
 
     override val currentState: S get() = _state.value
 
+    private val mutex = Mutex()
+
     init {
         enterAction?.let { dispatch(it) }
     }
 
     override fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
-        val prevState = _state.value
         coroutineScope.launch {
-            val nextState = onDispatched(prevState, action) { event ->
-                _event.emit(event)
-            }
+            mutex.withLock {
+                val prevState = _state.value
 
-            if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
-                exitAction?.let {
-                    onDispatched(prevState, it) { event ->
-                        _event.emit(event)
+                val nextState = onDispatched(prevState, action) { event ->
+                    _event.emit(event)
+                }
+
+                if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
+                    exitAction?.let {
+                        onDispatched(prevState, it) { event ->
+                            _event.emit(event)
+                        }
                     }
                 }
-            }
 
-            _state.update { nextState }
+                _state.update { nextState }
 
-            if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
-                enterAction?.let { dispatch(it) }
+                if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
+                    enterAction?.let { dispatch(it) }
+                }
             }
         }
     }
