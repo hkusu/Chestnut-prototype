@@ -29,11 +29,24 @@ class MainStore(
     exitAction = MainAction.Exit,
     middlewares = listOf(
         object : Middleware<MainState, MainAction, MainEvent> {
-            override fun onDispatched(state: MainState, action: MainAction) {
+            override fun onActionProcessed(state: MainState, action: MainAction, nextState: MainState) {
+                // println("Action: $action .. $state $nextState")
             }
 
             override fun onEventEmitted(state: MainState, action: MainAction, event: MainEvent) {
-                println("event emitted")
+                // println("Event: $event .. $state $action")
+            }
+
+            override fun onEntered(state: MainState, prevState: MainState) {
+                println("Enter: $state <- $prevState")
+            }
+
+            override fun onExited(state: MainState, nextState: MainState) {
+                println("Exit: $state -> $nextState")
+            }
+
+            override fun onStateChanged(state: MainState, prevState: MainState, action: MainAction) {
+                // println("State: $state .. $prevState")
             }
         },
     ),
@@ -112,7 +125,7 @@ open class DefaultStore<S : State, A : Action, E : Event>(
     private val enterAction: A?,
     private val exitAction: A?,
     private val middlewares: List<Middleware<S, A, E>> = emptyList(),
-    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
+    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()), // CoroutineExceptionHandlerは自前で挟んでもらう
 ) : Store<S, A, E> {
     private val _state: MutableStateFlow<S> = MutableStateFlow(initialState)
     override val state: StateFlow<S> = _state // Compose で購読
@@ -162,20 +175,39 @@ open class DefaultStore<S : State, A : Action, E : Event>(
             }
         }
 
+        middlewares.forEach {
+            it.onActionProcessed(prevState, action, nextState)
+        }
+
         if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
+            middlewares.forEach {
+                it.onExited(prevState, nextState)
+            }
             exitAction?.let { exitAction ->
                 onDispatched(prevState, exitAction) { event ->
                     _event.emit(event)
                     middlewares.forEach {
-                        it.onEventEmitted(prevState, action, event)
+                        it.onEventEmitted(prevState, exitAction, event)
                     }
+                }
+                middlewares.forEach {
+                    it.onActionProcessed(prevState, exitAction, nextState)
                 }
             }
         }
 
         _state.update { nextState }
 
+        if (prevState != nextState) {
+            middlewares.forEach {
+                it.onStateChanged(nextState, prevState, action)
+            }
+        }
+
         if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
+            middlewares.forEach {
+                it.onEntered(nextState, prevState)
+            }
             enterAction?.let { changeState(it) }
         }
     }
@@ -207,6 +239,10 @@ sealed interface MainEvent : Event {
 }
 
 interface Middleware<S : State, A : Action, E : Event> {
-    fun onDispatched(state: S, action: A)
+    fun onActionProcessed(state: S, action: A, nextState: S)
     fun onEventEmitted(state: S, action: A, event: E)
+    fun onEntered(state: S, prevState: S)
+    fun onExited(state: S, nextState: S)
+    fun onStateChanged(state: S, prevState: S, action: A)
+//    suspend fun onStateChangedSuspend(state: S, prevState: S, action: A)
 }
