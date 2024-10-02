@@ -1,6 +1,5 @@
 package io.github.hkusu.marron
 
-import io.github.hkusu.marron.Store.EventEmit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -85,15 +84,7 @@ interface Store<S : State, A : Action, E : Event> {
 
     fun dispatch(action: A)
 
-    suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S
-
-    fun dispose()
-
     fun collect(onState: OnState<S>, onEvent: OnEvent<E>): Job
-
-    fun interface EventEmit<E> {
-        suspend operator fun invoke(event: E)
-    }
 
     fun interface OnState<S> {
         suspend operator fun invoke(event: S)
@@ -104,7 +95,7 @@ interface Store<S : State, A : Action, E : Event> {
     }
 }
 
-open class DefaultStore<S : State, A : Action, E : Event>(
+abstract class DefaultStore<S : State, A : Action, E : Event>(
     initialState: S,
     private val enterAction: A?,
     private val exitAction: A?,
@@ -133,12 +124,8 @@ open class DefaultStore<S : State, A : Action, E : Event>(
         }
     }
 
-    override suspend fun onDispatched(state: S, action: A, emit: Store.EventEmit<E>): S {
-        TODO("You should override")
-    }
-
     // viseModelScope のような auto close の CoroutinesScope 以外の場合に利用
-    override fun dispose() {
+    protected fun dispose() {
         coroutineScope.cancel()
     }
 
@@ -149,7 +136,9 @@ open class DefaultStore<S : State, A : Action, E : Event>(
         }
     }
 
-    private suspend fun changeState(action: A) {
+    protected abstract suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S
+
+    protected open suspend fun changeState(action: A) {
         val prevState = _state.value
 
         val nextState = onDispatched(prevState, action) { event ->
@@ -201,6 +190,10 @@ open class DefaultStore<S : State, A : Action, E : Event>(
             }
             enterAction?.let { changeState(it) }
         }
+    }
+
+    fun interface EventEmit<E> {
+        suspend operator fun invoke(event: E)
     }
 }
 
