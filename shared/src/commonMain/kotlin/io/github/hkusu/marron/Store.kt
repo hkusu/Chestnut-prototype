@@ -136,6 +136,13 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
         }
     }
 
+    protected abstract suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S
+
+    // viseModelScope のような auto close の CoroutinesScope 以外の場合に利用
+    protected fun dispose() {
+        coroutineScope.cancel()
+    }
+
     private suspend fun changeState(action: A) {
         val prevState = _state.value
 
@@ -188,13 +195,6 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
             }
             enterAction?.let { changeState(it) }
         }
-    }
-
-    protected abstract suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S
-
-    // viseModelScope のような auto close の CoroutinesScope 以外の場合に利用
-    protected fun dispose() {
-        coroutineScope.cancel()
     }
 
     protected fun interface EventEmit<E> {
