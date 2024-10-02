@@ -22,6 +22,7 @@ class MainStore(
     //   getHogeListUseCase: GetHogeListUseCase,
     //   setgFugaUseCase: SetFugaUseCase,
     coroutineScope: CoroutineScope, // 基本は viewModelScope を渡す想定
+    // 外から Middleware を渡す場合
     //    override val middlewares: List<Middleware<MainState, MainAction, MainEvent>>
 ) : DefaultStore<MainState, MainAction, MainEvent>(
     initialState = MainState.Initial,
@@ -38,6 +39,7 @@ class MainStore(
     )
 
     init {
+        // 本当は Activity の onCreate() とかでやった方がよさそう
         dispatch(MainAction.Enter)
     }
 
@@ -134,7 +136,7 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
         }
     }
 
-    protected open suspend fun changeState(action: A) {
+    private suspend fun changeState(action: A) {
         val prevState = _state.value
 
         val nextState = onDispatched(prevState, action) { event ->
@@ -195,7 +197,7 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
         coroutineScope.cancel()
     }
 
-    fun interface EventEmit<E> {
+    protected fun interface EventEmit<E> {
         suspend operator fun invoke(event: E)
     }
 }
