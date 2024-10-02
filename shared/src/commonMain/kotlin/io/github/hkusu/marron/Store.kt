@@ -22,19 +22,25 @@ class MainStore(
     //   getHogeListUseCase: GetHogeListUseCase,
     //   setgFugaUseCase: SetFugaUseCase,
     coroutineScope: CoroutineScope, // 基本は viewModelScope を渡す想定
+    //    override val middlewares: List<Middleware<MainState, MainAction, MainEvent>>
 ) : DefaultStore<MainState, MainAction, MainEvent>(
     initialState = MainState.Initial,
     enterAction = MainAction.Enter,
     exitAction = MainAction.Exit,
-    middlewares = listOf(
-        object : Middleware<MainState, MainAction, MainEvent> {
-            override fun onActionProcessed(state: MainState, action: MainAction, nextState: MainState) {
-                // println("Action: $action .. $state $nextState")
-            }
-        },
-    ),
     coroutineScope = coroutineScope,
 ) {
+    override val middlewares: List<Middleware<MainState, MainAction, MainEvent>> = listOf(
+        object : Middleware<MainState, MainAction, MainEvent> {
+            override fun onActionProcessed(state: MainState, action: MainAction, nextState: MainState) {
+                println("Action: $action .. $state $nextState")
+            }
+        },
+    )
+
+    init {
+        dispatch(MainAction.Enter)
+    }
+
     override suspend fun onDispatched(state: MainState, action: MainAction, emit: EventEmit<MainEvent>): MainState = when (state) {
         MainState.Initial -> when (action) {
             MainAction.Enter -> {
@@ -97,9 +103,8 @@ interface Store<S : State, A : Action, E : Event> {
 
 abstract class DefaultStore<S : State, A : Action, E : Event>(
     initialState: S,
-    private val enterAction: A?,
-    private val exitAction: A?,
-    private val middlewares: List<Middleware<S, A, E>> = emptyList(),
+    private val enterAction: A? = null,
+    private val exitAction: A? = null,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()), // CoroutineExceptionHandlerは自前で挟んでもらう
 ) : Store<S, A, E> {
     private val _state: MutableStateFlow<S> = MutableStateFlow(initialState)
@@ -110,11 +115,9 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
 
     override val currentState: S get() = _state.value
 
-    private val mutex = Mutex()
+    protected open val middlewares: List<Middleware<S, A, E>> = emptyList()
 
-    init {
-        enterAction?.let { dispatch(it) }
-    }
+    private val mutex = Mutex()
 
     override fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
         coroutineScope.launch {
@@ -124,19 +127,12 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
         }
     }
 
-    // viseModelScope のような auto close の CoroutinesScope 以外の場合に利用
-    protected fun dispose() {
-        coroutineScope.cancel()
-    }
-
     override fun collect(onState: Store.OnState<S>, onEvent: Store.OnEvent<E>): Job {
         return coroutineScope.launch {
             launch { state.collect { onState(it) } }
             launch { event.collect { onEvent(it) } }
         }
     }
-
-    protected abstract suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S
 
     protected open suspend fun changeState(action: A) {
         val prevState = _state.value
@@ -190,6 +186,13 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
             }
             enterAction?.let { changeState(it) }
         }
+    }
+
+    protected abstract suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S
+
+    // viseModelScope のような auto close の CoroutinesScope 以外の場合に利用
+    protected fun dispose() {
+        coroutineScope.cancel()
     }
 
     fun interface EventEmit<E> {
