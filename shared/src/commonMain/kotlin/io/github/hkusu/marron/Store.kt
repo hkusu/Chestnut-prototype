@@ -32,22 +32,6 @@ class MainStore(
             override fun onActionProcessed(state: MainState, action: MainAction, nextState: MainState) {
                 // println("Action: $action .. $state $nextState")
             }
-
-            override fun onEventEmitted(state: MainState, action: MainAction, event: MainEvent) {
-                // println("Event: $event .. $state $action")
-            }
-
-            override fun onEntered(state: MainState, prevState: MainState) {
-                println("Enter: $state <- $prevState")
-            }
-
-            override fun onExited(state: MainState, nextState: MainState) {
-                println("Exit: $state -> $nextState")
-            }
-
-            override fun onStateChanged(state: MainState, prevState: MainState, action: MainAction) {
-                // println("State: $state .. $prevState")
-            }
         },
     ),
     coroutineScope = coroutineScope,
@@ -172,26 +156,31 @@ open class DefaultStore<S : State, A : Action, E : Event>(
             _event.emit(event)
             middlewares.forEach {
                 it.onEventEmitted(prevState, action, event)
+                it.onEventEmittedSuspend(prevState, action, event)
             }
         }
 
         middlewares.forEach {
             it.onActionProcessed(prevState, action, nextState)
+            it.onActionProcessedSuspend(prevState, action, nextState)
         }
 
         if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
             middlewares.forEach {
                 it.onExited(prevState, nextState)
+                it.onExitedSuspend(prevState, nextState)
             }
             exitAction?.let { exitAction ->
                 onDispatched(prevState, exitAction) { event ->
                     _event.emit(event)
                     middlewares.forEach {
                         it.onEventEmitted(prevState, exitAction, event)
+                        it.onEventEmittedSuspend(prevState, exitAction, event)
                     }
                 }
                 middlewares.forEach {
                     it.onActionProcessed(prevState, exitAction, nextState)
+                    it.onActionProcessedSuspend(prevState, exitAction, nextState)
                 }
             }
         }
@@ -201,12 +190,14 @@ open class DefaultStore<S : State, A : Action, E : Event>(
         if (prevState != nextState) {
             middlewares.forEach {
                 it.onStateChanged(nextState, prevState, action)
+                it.onStateChangedSuspend(nextState, prevState, action)
             }
         }
 
         if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
             middlewares.forEach {
                 it.onEntered(nextState, prevState)
+                it.onEnteredSuspend(nextState, prevState)
             }
             enterAction?.let { changeState(it) }
         }
@@ -239,10 +230,14 @@ sealed interface MainEvent : Event {
 }
 
 interface Middleware<S : State, A : Action, E : Event> {
-    fun onActionProcessed(state: S, action: A, nextState: S)
-    fun onEventEmitted(state: S, action: A, event: E)
-    fun onEntered(state: S, prevState: S)
-    fun onExited(state: S, nextState: S)
-    fun onStateChanged(state: S, prevState: S, action: A)
-//    suspend fun onStateChangedSuspend(state: S, prevState: S, action: A)
+    fun onActionProcessed(state: S, action: A, nextState: S) {}
+    fun onActionProcessedSuspend(state: S, action: A, nextState: S) {}
+    fun onEventEmitted(state: S, action: A, event: E) {}
+    fun onEventEmittedSuspend(state: S, action: A, event: E) {}
+    fun onEntered(state: S, prevState: S) {}
+    fun onEnteredSuspend(state: S, prevState: S) {}
+    fun onExited(state: S, nextState: S) {}
+    fun onExitedSuspend(state: S, nextState: S) {}
+    fun onStateChanged(state: S, prevState: S, action: A) {}
+    suspend fun onStateChangedSuspend(state: S, prevState: S, action: A) {}
 }
