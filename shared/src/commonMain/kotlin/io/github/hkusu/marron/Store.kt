@@ -229,13 +229,13 @@ sealed interface MainEvent : Event {
 
 interface Middleware<S : State, A : Action, E : Event> {
     fun onActionProcessed(state: S, action: A, nextState: S) {}
-    fun onActionProcessedSuspend(state: S, action: A, nextState: S) {}
+    suspend fun onActionProcessedSuspend(state: S, action: A, nextState: S) {}
     fun onEventEmitted(state: S, action: A, event: E) {}
-    fun onEventEmittedSuspend(state: S, action: A, event: E) {}
+    suspend fun onEventEmittedSuspend(state: S, action: A, event: E) {}
     fun onEntered(state: S, prevState: S) {}
-    fun onEnteredSuspend(state: S, prevState: S) {}
+    suspend fun onEnteredSuspend(state: S, prevState: S) {}
     fun onExited(state: S, nextState: S) {}
-    fun onExitedSuspend(state: S, nextState: S) {}
+    suspend fun onExitedSuspend(state: S, nextState: S) {}
     fun onStateChanged(state: S, prevState: S, action: A) {}
     suspend fun onStateChangedSuspend(state: S, prevState: S, action: A) {}
 }
