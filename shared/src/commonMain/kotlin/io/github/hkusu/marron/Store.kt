@@ -148,52 +148,66 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
 
         val nextState = onDispatched(prevState, action) { event ->
             _event.emit(event)
-            middlewares.forEach {
-                it.onEventEmitted(prevState, action, event)
-                it.onEventEmittedSuspend(prevState, action, event)
-            }
+            processEventMiddleware(prevState, action, event)
         }
 
-        middlewares.forEach {
-            it.onActionProcessed(prevState, action, nextState)
-            it.onActionProcessedSuspend(prevState, action, nextState)
-        }
+        processActonMiddleware(prevState, action, nextState)
 
         if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
-            middlewares.forEach {
-                it.onExited(prevState, nextState)
-                it.onExitedSuspend(prevState, nextState)
-            }
+            processExitMiddleware(prevState, nextState)
             exitAction?.let { exitAction ->
                 onDispatched(prevState, exitAction) { event ->
                     _event.emit(event)
-                    middlewares.forEach {
-                        it.onEventEmitted(prevState, exitAction, event)
-                        it.onEventEmittedSuspend(prevState, exitAction, event)
-                    }
+                    processEventMiddleware(prevState, exitAction, event)
                 }
-                middlewares.forEach {
-                    it.onActionProcessed(prevState, exitAction, nextState)
-                    it.onActionProcessedSuspend(prevState, exitAction, nextState)
-                }
+                processActonMiddleware(prevState, exitAction, nextState)
             }
         }
 
         _state.update { nextState }
 
         if (prevState != nextState) {
-            middlewares.forEach {
-                it.onStateChanged(nextState, prevState, action)
-                it.onStateChangedSuspend(nextState, prevState, action)
-            }
+            processStateMiddleware(nextState, prevState, action)
         }
 
         if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
-            middlewares.forEach {
-                it.onEntered(nextState, prevState)
-                it.onEnteredSuspend(nextState, prevState)
-            }
+            processEnterMiddleware(nextState, prevState)
             enterAction?.let { changeState(it) }
+        }
+    }
+
+    private suspend fun processActonMiddleware(state: S, action: A, nextState: S) {
+        middlewares.forEach {
+            it.onActionProcessed(state, action, nextState)
+            it.onActionProcessedSuspend(state, action, nextState)
+        }
+    }
+
+    private suspend fun processEventMiddleware(state: S, action: A, event: E) {
+        middlewares.forEach {
+            it.onEventEmitted(state, action, event)
+            it.onEventEmittedSuspend(state, action, event)
+        }
+    }
+
+    private suspend fun processEnterMiddleware(state: S, prevState: S) {
+        middlewares.forEach {
+            it.onEntered(state, prevState)
+            it.onEnteredSuspend(state, prevState)
+        }
+    }
+
+    private suspend fun processExitMiddleware(state: S, nextState: S) {
+        middlewares.forEach {
+            it.onExited(state, nextState)
+            it.onExitedSuspend(state, nextState)
+        }
+    }
+
+    private suspend fun processStateMiddleware(state: S, prevState: S, action: A) {
+        middlewares.forEach {
+            it.onStateChanged(state, prevState, action)
+            it.onStateChangedSuspend(state, prevState, action)
         }
     }
 
