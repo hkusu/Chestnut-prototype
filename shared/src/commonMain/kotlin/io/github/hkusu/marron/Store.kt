@@ -133,7 +133,7 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
         if (_state.value != initialState) return
         coroutineScope.launch {
             mutex.withLock {
-                processState()
+                processState(_state.value)
             }
         }
     }
@@ -141,7 +141,7 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
     override fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
         coroutineScope.launch {
             mutex.withLock {
-                processState(action)
+                processState(_state.value, action)
             }
         }
     }
@@ -164,31 +164,29 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
         coroutineScope.cancel()
     }
 
-    private suspend fun processState(action: A? = null) {
-        val currentState = _state.value
-
+    private suspend fun processState(state: S, action: A? = null) {
         val nextState = action?.run {
-            onDispatched(currentState, action, ::processEvent).apply {
-                processActonMiddleware(currentState, action, this)
+            onDispatched(state, action, ::processEvent).apply {
+                processActonMiddleware(state, action, this)
             }
         } ?: run {
-            processEnterMiddleware(currentState)
-            onEntered(currentState, ::processEvent)
+            processEnterMiddleware(state)
+            onEntered(state, ::processEvent)
         }
 
-        if (currentState::class.qualifiedName != nextState::class.qualifiedName) {
-            onExited(currentState, ::processEvent)
-            processExitMiddleware(currentState)
+        if (state::class.qualifiedName != nextState::class.qualifiedName) {
+            onExited(state, ::processEvent)
+            processExitMiddleware(state)
         }
 
         _state.update { nextState }
 
-        if (currentState != nextState) {
-            processStateMiddleware(nextState, currentState)
+        if (state != nextState) {
+            processStateMiddleware(nextState, state)
         }
 
-        if (currentState::class.qualifiedName != nextState::class.qualifiedName) {
-            processState()
+        if (state::class.qualifiedName != nextState::class.qualifiedName) {
+            processState(nextState)
         }
     }
 
