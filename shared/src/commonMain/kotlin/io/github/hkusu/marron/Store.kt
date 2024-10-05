@@ -26,59 +26,67 @@ class MainStore(
     //    override val middlewares: List<Middleware<MainState, MainAction, MainEvent>>
 ) : DefaultStore<MainState, MainAction, MainEvent>(
     initialState = MainState.Initial,
-    enterAction = MainAction.Enter,
-    exitAction = MainAction.Exit,
     coroutineScope = coroutineScope,
 ) {
     override val middlewares: List<Middleware<MainState, MainAction, MainEvent>> = listOf(
         object : Middleware<MainState, MainAction, MainEvent> {
             override fun onActionProcessed(state: MainState, action: MainAction, nextState: MainState) {
-                println("Action: $action .. $state $nextState")
+                println("Action: $action .. $state")
+            }
+
+            override fun onEventEmitted(state: MainState, event: MainEvent) {
+                println("Event: $event .. $state")
+            }
+
+            override fun onStateChanged(state: MainState, prevState: MainState) {
+                println("State updated: $state")
+            }
+
+            override fun onStateEntered(state: MainState) {
+                println("Enter: $state")
+            }
+
+            override fun onStateExited(state: MainState) {
+                println("Exit: $state")
             }
         },
     )
 
     init {
         // 本当は Activity の onCreate() とかでやった方がよさそう
-        dispatch(MainAction.Enter)
+        start()
+    }
+
+    override suspend fun onEntered(state: MainState, emit: EventEmit<MainEvent>): MainState = when (state) {
+        MainState.Initial -> {
+            // すぐさま Loading に
+            MainState.Loading
+        }
+
+        MainState.Loading -> {
+            // UseCase や Repository からデータ取得
+            delay(5_000)
+            // データを読み終わったら Stable に
+            MainState.Stable(listOf())
+        }
+
+        else -> null
+    } ?: state
+
+    override suspend fun onExited(state: MainState, emit: EventEmit<MainEvent>) {
     }
 
     override suspend fun onDispatched(state: MainState, action: MainAction, emit: EventEmit<MainEvent>): MainState = when (state) {
-        MainState.Initial -> when (action) {
-            MainAction.Enter -> {
-                // すぐさま Loading に
-                MainState.Loading
-            }
-
-            else -> null
-        }
-
-        MainState.Loading -> when (action) { // Compose でローディング中の旨の画面を表示
-            MainAction.Enter -> {
-                // UseCase や Repository からデータ取得
-                delay(5_000)
-                // データを読み終わったら Stable に
-                MainState.Stable(listOf())
-            }
-
-            else -> null
-        }
-
         is MainState.Stable -> when (action) { // Compose で state.dataList のデータを画面へ描画する
-            MainAction.Enter -> {
-                // イベント発行例
-                emit(MainEvent.ShowToast("データがロードされました"))
-                null
-            }
-
             is MainAction.Click -> {
+                // イベント発行例
+                emit(MainEvent.ShowToast("クリクされました"))
                 // state の更新は data class の copy で
                 state.copy(clickCounter = state.clickCounter + 1)
             }
-
-            else -> null
         }
 
+        else -> null
     } ?: state
 }
 
@@ -89,6 +97,8 @@ interface Store<S : State, A : Action, E : Event> {
     val event: Flow<E>
 
     val currentState: S
+
+    fun start()
 
     fun dispatch(action: A)
 
@@ -104,9 +114,7 @@ interface Store<S : State, A : Action, E : Event> {
 }
 
 abstract class DefaultStore<S : State, A : Action, E : Event>(
-    initialState: S,
-    private val enterAction: A? = null,
-    private val exitAction: A? = null,
+    private val initialState: S,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()), // CoroutineExceptionHandlerは自前で挟んでもらう
 ) : Store<S, A, E> {
     private val _state: MutableStateFlow<S> = MutableStateFlow(initialState)
@@ -121,10 +129,19 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
 
     private val mutex = Mutex()
 
+    override fun start() {
+        if (_state.value != initialState) return
+        coroutineScope.launch {
+            mutex.withLock {
+                processState()
+            }
+        }
+    }
+
     override fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
         coroutineScope.launch {
             mutex.withLock {
-                changeState(action)
+                processState(action)
             }
         }
     }
@@ -136,44 +153,48 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
         }
     }
 
-    protected abstract suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S
+    protected open suspend fun onEntered(state: S, emit: EventEmit<E>): S = state
+
+    protected open suspend fun onExited(state: S, emit: EventEmit<E>) {}
+
+    protected open suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S = state
 
     // viseModelScope のような auto close の CoroutinesScope 以外の場合に利用
     protected fun dispose() {
         coroutineScope.cancel()
     }
 
-    private suspend fun changeState(action: A) {
-        val prevState = _state.value
+    private suspend fun processState(action: A? = null) {
+        val currentState = _state.value
 
-        val nextState = onDispatched(prevState, action) { event ->
-            _event.emit(event)
-            processEventMiddleware(prevState, action, event)
+        val nextState = action?.run {
+            onDispatched(currentState, action, ::processEvent).apply {
+                processActonMiddleware(currentState, action, this)
+            }
+        } ?: run {
+            processEnterMiddleware(currentState)
+            onEntered(currentState, ::processEvent)
         }
 
-        processActonMiddleware(prevState, action, nextState)
-
-        if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
-            processExitMiddleware(prevState, nextState)
-            exitAction?.let { exitAction ->
-                onDispatched(prevState, exitAction) { event ->
-                    _event.emit(event)
-                    processEventMiddleware(prevState, exitAction, event)
-                }
-                processActonMiddleware(prevState, exitAction, nextState)
-            }
+        if (currentState::class.qualifiedName != nextState::class.qualifiedName) {
+            onExited(currentState, ::processEvent)
+            processExitMiddleware(currentState)
         }
 
         _state.update { nextState }
 
-        if (prevState != nextState) {
-            processStateMiddleware(nextState, prevState, action)
+        if (currentState != nextState) {
+            processStateMiddleware(nextState, currentState)
         }
 
-        if (prevState::class.qualifiedName != nextState::class.qualifiedName) {
-            processEnterMiddleware(nextState, prevState)
-            enterAction?.let { changeState(it) }
+        if (currentState::class.qualifiedName != nextState::class.qualifiedName) {
+            processState()
         }
+    }
+
+    private suspend fun processEvent(event: E) {
+        _event.emit(event)
+        processEventMiddleware(_state.value, event)
     }
 
     private suspend fun processActonMiddleware(state: S, action: A, nextState: S) {
@@ -183,31 +204,31 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
         }
     }
 
-    private suspend fun processEventMiddleware(state: S, action: A, event: E) {
+    private suspend fun processEventMiddleware(state: S, event: E) {
         middlewares.forEach {
-            it.onEventEmitted(state, action, event)
-            it.onEventEmittedSuspend(state, action, event)
+            it.onEventEmitted(state, event)
+            it.onEventEmittedSuspend(state, event)
         }
     }
 
-    private suspend fun processEnterMiddleware(state: S, prevState: S) {
+    private suspend fun processEnterMiddleware(state: S) {
         middlewares.forEach {
-            it.onEntered(state, prevState)
-            it.onEnteredSuspend(state, prevState)
+            it.onStateEntered(state)
+            it.onStateEnteredSuspend(state)
         }
     }
 
-    private suspend fun processExitMiddleware(state: S, nextState: S) {
+    private suspend fun processExitMiddleware(state: S) {
         middlewares.forEach {
-            it.onExited(state, nextState)
-            it.onExitedSuspend(state, nextState)
+            it.onStateExited(state)
+            it.onStateExitedSuspend(state)
         }
     }
 
-    private suspend fun processStateMiddleware(state: S, prevState: S, action: A) {
+    private suspend fun processStateMiddleware(state: S, prevState: S) {
         middlewares.forEach {
-            it.onStateChanged(state, prevState, action)
-            it.onStateChangedSuspend(state, prevState, action)
+            it.onStateChanged(state, prevState)
+            it.onStateChangedSuspend(state, prevState)
         }
     }
 
@@ -232,8 +253,6 @@ sealed interface MainState : State {
 }
 
 sealed interface MainAction : Action {
-    data object Enter : MainAction
-    data object Exit : MainAction
     data class Click(val id: Long) : MainAction
 }
 
@@ -244,12 +263,12 @@ sealed interface MainEvent : Event {
 interface Middleware<S : State, A : Action, E : Event> {
     fun onActionProcessed(state: S, action: A, nextState: S) {}
     suspend fun onActionProcessedSuspend(state: S, action: A, nextState: S) {}
-    fun onEventEmitted(state: S, action: A, event: E) {}
-    suspend fun onEventEmittedSuspend(state: S, action: A, event: E) {}
-    fun onEntered(state: S, prevState: S) {}
-    suspend fun onEnteredSuspend(state: S, prevState: S) {}
-    fun onExited(state: S, nextState: S) {}
-    suspend fun onExitedSuspend(state: S, nextState: S) {}
-    fun onStateChanged(state: S, prevState: S, action: A) {}
-    suspend fun onStateChangedSuspend(state: S, prevState: S, action: A) {}
+    fun onEventEmitted(state: S, event: E) {}
+    suspend fun onEventEmittedSuspend(state: S, event: E) {}
+    fun onStateEntered(state: S) {}
+    suspend fun onStateEnteredSuspend(state: S) {}
+    fun onStateExited(state: S) {}
+    suspend fun onStateExitedSuspend(state: S) {}
+    fun onStateChanged(state: S, prevState: S) {}
+    suspend fun onStateChangedSuspend(state: S, prevState: S) {}
 }
