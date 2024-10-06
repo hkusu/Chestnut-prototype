@@ -30,23 +30,23 @@ class MainStore(
 ) {
     override val middlewares: List<Middleware<MainState, MainAction, MainEvent>> = listOf(
         object : Middleware<MainState, MainAction, MainEvent> {
-            override suspend fun onActionProcessed(state: MainState, action: MainAction, nextState: MainState) {
+            override suspend fun afterActionDispatch(state: MainState, action: MainAction, nextState: MainState) {
                 println("Action: $action .. $state")
             }
 
-            override suspend fun onEventEmitted(state: MainState, event: MainEvent) {
+            override suspend fun afterEventEmit(state: MainState, event: MainEvent) {
                 println("Event: $event .. $state")
             }
 
-            override suspend fun onStateChanged(state: MainState, prevState: MainState) {
+            override suspend fun afterStateChange(state: MainState, prevState: MainState) {
                 println("State updated: $state")
             }
 
-            override suspend fun onStateEntered(state: MainState) {
+            override suspend fun afterStateEnter(state: MainState, nextState: MainState) {
                 println("Enter: $state")
             }
 
-            override suspend fun onStateExited(state: MainState) {
+            override suspend fun afterStateExit(state: MainState) {
                 println("Exit: $state")
             }
         },
@@ -166,23 +166,25 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
 
     private suspend fun processState(state: S, action: A? = null) {
         val nextState = action?.run {
-            onDispatched(state, action, ::processEvent).apply {
-                processActonMiddleware(state, action, this)
+            processActonDispatchMiddleware(state, action) {
+                onDispatched(state, action) { processEvent(state, it) }
             }
         } ?: run {
-            processEnterMiddleware(state)
-            onEntered(state, ::processEvent)
+            processStateEnterMiddleware(state) {
+                onEntered(state) { processEvent(state, it) }
+            }
         }
 
         if (state::class.qualifiedName != nextState::class.qualifiedName) {
-            onExited(state, ::processEvent)
-            processExitMiddleware(state)
+            processStateExitMiddleware(state) {
+                onExited(state) { processEvent(state, it) }
+            }
         }
 
-        _state.update { nextState }
-
         if (state != nextState) {
-            processStateMiddleware(nextState, state)
+            processStateChangeMiddleware(nextState, state) {
+                _state.update { nextState }
+            }
         }
 
         if (state::class.qualifiedName != nextState::class.qualifiedName) {
@@ -190,38 +192,61 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
         }
     }
 
-    private suspend fun processEvent(event: E) {
-        _event.emit(event)
-        processEventMiddleware(_state.value, event)
+    private suspend fun processActonDispatchMiddleware(state: S, action: A, block: suspend () -> S): S {
+        middlewares.forEach {
+            it.beforeActionDispatch(state, action)
+        }
+        val nextState = block.invoke()
+        middlewares.forEach {
+            it.afterActionDispatch(state, action, nextState)
+        }
+        return nextState
     }
 
-    private suspend fun processActonMiddleware(state: S, action: A, nextState: S) {
+    private suspend fun processEventEmitMiddleware(state: S, event: E, block: suspend () -> Unit) {
         middlewares.forEach {
-            it.onActionProcessed(state, action, nextState)
+            it.beforeEventEmit(state, event)
+        }
+        block.invoke()
+        middlewares.forEach {
+            it.afterEventEmit(state, event)
         }
     }
 
-    private suspend fun processEventMiddleware(state: S, event: E) {
+    private suspend fun processStateEnterMiddleware(state: S, block: suspend () -> S): S {
         middlewares.forEach {
-            it.onEventEmitted(state, event)
+            it.beforeStateEnter(state)
+        }
+        val nextState = block.invoke()
+        middlewares.forEach {
+            it.afterStateEnter(state, nextState)
+        }
+        return nextState
+    }
+
+    private suspend fun processStateExitMiddleware(state: S, block: suspend () -> Unit) {
+        middlewares.forEach {
+            it.beforeStateExit(state)
+        }
+        block.invoke()
+        middlewares.forEach {
+            it.afterStateExit(state)
         }
     }
 
-    private suspend fun processEnterMiddleware(state: S) {
+    private suspend fun processStateChangeMiddleware(state: S, nextState: S, block: () -> Unit) {
         middlewares.forEach {
-            it.onStateEntered(state)
+            it.beforeStateChange(state, nextState)
+        }
+        block.invoke()
+        middlewares.forEach {
+            it.afterStateChange(nextState, state)
         }
     }
 
-    private suspend fun processExitMiddleware(state: S) {
-        middlewares.forEach {
-            it.onStateExited(state)
-        }
-    }
-
-    private suspend fun processStateMiddleware(state: S, prevState: S) {
-        middlewares.forEach {
-            it.onStateChanged(state, prevState)
+    private suspend fun processEvent(state: S, event: E) {
+        processEventEmitMiddleware(state, event) {
+            _event.emit(event)
         }
     }
 
@@ -254,9 +279,14 @@ sealed interface MainEvent : Event {
 }
 
 interface Middleware<S : State, A : Action, E : Event> {
-    suspend fun onActionProcessed(state: S, action: A, nextState: S) {}
-    suspend fun onEventEmitted(state: S, event: E) {}
-    suspend fun onStateEntered(state: S) {}
-    suspend fun onStateExited(state: S) {}
-    suspend fun onStateChanged(state: S, prevState: S) {}
+    suspend fun beforeActionDispatch(state: S, action: A) {}
+    suspend fun afterActionDispatch(state: S, action: A, nextState: S) {}
+    suspend fun beforeEventEmit(state: S, event: E) {}
+    suspend fun afterEventEmit(state: S, event: E) {}
+    suspend fun beforeStateEnter(state: S) {}
+    suspend fun afterStateEnter(state: S, nextState: S) {}
+    suspend fun beforeStateExit(state: S) {}
+    suspend fun afterStateExit(state: S) {}
+    suspend fun beforeStateChange(state: S, nextState: S) {}
+    suspend fun afterStateChange(state: S, prevState: S) {}
 }
