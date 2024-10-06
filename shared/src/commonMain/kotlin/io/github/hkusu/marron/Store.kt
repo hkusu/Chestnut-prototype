@@ -130,10 +130,11 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
     private val mutex = Mutex()
 
     override fun start() {
-        if (_state.value != initialState) return
         coroutineScope.launch {
             mutex.withLock {
-                processState(_state.value)
+                if (_state.value == initialState) {
+                    processAction(initialState)
+                }
             }
         }
     }
@@ -141,7 +142,7 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
     override fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
         coroutineScope.launch {
             mutex.withLock {
-                processState(_state.value, action)
+                processAction(_state.value, action)
             }
         }
     }
@@ -164,89 +165,75 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
         coroutineScope.cancel()
     }
 
-    private suspend fun processState(state: S, action: A? = null) {
+    private suspend fun processAction(state: S, action: A? = null) {
         val nextState = action?.run {
-            processActonDispatchMiddleware(state, action) {
-                onDispatched(state, action) { processEvent(state, it) }
-            }
+            processActonDispatch(state, action)
         } ?: run {
-            processStateEnterMiddleware(state) {
-                onEntered(state) { processEvent(state, it) }
-            }
+            processStateEnter(state)
         }
 
         if (state::class.qualifiedName != nextState::class.qualifiedName) {
-            processStateExitMiddleware(state) {
-                onExited(state) { processEvent(state, it) }
-            }
+            processStateExit(state)
         }
 
         if (state != nextState) {
-            processStateChangeMiddleware(nextState, state) {
-                _state.update { nextState }
-            }
+            processStateChange(state, nextState)
         }
 
         if (state::class.qualifiedName != nextState::class.qualifiedName) {
-            processState(nextState)
+            processAction(nextState)
         }
     }
 
-    private suspend fun processActonDispatchMiddleware(state: S, action: A, block: suspend () -> S): S {
+    private suspend fun processActonDispatch(state: S, action: A): S {
         middlewares.forEach {
             it.beforeActionDispatch(state, action)
         }
-        val nextState = block.invoke()
+        val nextState = onDispatched(state, action) { processEventEmit(state, it) }
         middlewares.forEach {
             it.afterActionDispatch(state, action, nextState)
         }
         return nextState
     }
 
-    private suspend fun processEventEmitMiddleware(state: S, event: E, block: suspend () -> Unit) {
+    private suspend fun processEventEmit(state: S, event: E) {
         middlewares.forEach {
             it.beforeEventEmit(state, event)
         }
-        block.invoke()
+        _event.emit(event)
         middlewares.forEach {
             it.afterEventEmit(state, event)
         }
     }
 
-    private suspend fun processStateEnterMiddleware(state: S, block: suspend () -> S): S {
+    private suspend fun processStateEnter(state: S): S {
         middlewares.forEach {
             it.beforeStateEnter(state)
         }
-        val nextState = block.invoke()
+        val nextState = onEntered(state) { processEventEmit(state, it) }
         middlewares.forEach {
             it.afterStateEnter(state, nextState)
         }
         return nextState
     }
 
-    private suspend fun processStateExitMiddleware(state: S, block: suspend () -> Unit) {
+    private suspend fun processStateExit(state: S) {
         middlewares.forEach {
             it.beforeStateExit(state)
         }
-        block.invoke()
+        onExited(state) { processEventEmit(state, it) }
         middlewares.forEach {
             it.afterStateExit(state)
         }
     }
 
-    private suspend fun processStateChangeMiddleware(state: S, nextState: S, block: () -> Unit) {
+    private suspend fun processStateChange(state: S, nextState: S) {
         middlewares.forEach {
             it.beforeStateChange(state, nextState)
         }
-        block.invoke()
+        _state.update { nextState }
         middlewares.forEach {
             it.afterStateChange(nextState, state)
-        }
-    }
-
-    private suspend fun processEvent(state: S, event: E) {
-        processEventEmitMiddleware(state, event) {
-            _event.emit(event)
         }
     }
 
