@@ -30,23 +30,23 @@ class MainStore(
 ) {
     override val middlewares: List<Middleware<MainState, MainAction, MainEvent>> = listOf(
         object : Middleware<MainState, MainAction, MainEvent> {
-            override fun onActionProcessed(state: MainState, action: MainAction, nextState: MainState) {
+            override suspend fun onActionProcessed(state: MainState, action: MainAction, nextState: MainState) {
                 println("Action: $action .. $state")
             }
 
-            override fun onEventEmitted(state: MainState, event: MainEvent) {
+            override suspend fun onEventEmitted(state: MainState, event: MainEvent) {
                 println("Event: $event .. $state")
             }
 
-            override fun onStateChanged(state: MainState, prevState: MainState) {
+            override suspend fun onStateChanged(state: MainState, prevState: MainState) {
                 println("State updated: $state")
             }
 
-            override fun onStateEntered(state: MainState) {
+            override suspend fun onStateEntered(state: MainState) {
                 println("Enter: $state")
             }
 
-            override fun onStateExited(state: MainState) {
+            override suspend fun onStateExited(state: MainState) {
                 println("Exit: $state")
             }
         },
@@ -198,35 +198,30 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
     private suspend fun processActonMiddleware(state: S, action: A, nextState: S) {
         middlewares.forEach {
             it.onActionProcessed(state, action, nextState)
-            it.onActionProcessedSuspend(state, action, nextState)
         }
     }
 
     private suspend fun processEventMiddleware(state: S, event: E) {
         middlewares.forEach {
             it.onEventEmitted(state, event)
-            it.onEventEmittedSuspend(state, event)
         }
     }
 
     private suspend fun processEnterMiddleware(state: S) {
         middlewares.forEach {
             it.onStateEntered(state)
-            it.onStateEnteredSuspend(state)
         }
     }
 
     private suspend fun processExitMiddleware(state: S) {
         middlewares.forEach {
             it.onStateExited(state)
-            it.onStateExitedSuspend(state)
         }
     }
 
     private suspend fun processStateMiddleware(state: S, prevState: S) {
         middlewares.forEach {
             it.onStateChanged(state, prevState)
-            it.onStateChangedSuspend(state, prevState)
         }
     }
 
@@ -259,14 +254,9 @@ sealed interface MainEvent : Event {
 }
 
 interface Middleware<S : State, A : Action, E : Event> {
-    fun onActionProcessed(state: S, action: A, nextState: S) {}
-    suspend fun onActionProcessedSuspend(state: S, action: A, nextState: S) {}
-    fun onEventEmitted(state: S, event: E) {}
-    suspend fun onEventEmittedSuspend(state: S, event: E) {}
-    fun onStateEntered(state: S) {}
-    suspend fun onStateEnteredSuspend(state: S) {}
-    fun onStateExited(state: S) {}
-    suspend fun onStateExitedSuspend(state: S) {}
-    fun onStateChanged(state: S, prevState: S) {}
-    suspend fun onStateChangedSuspend(state: S, prevState: S) {}
+    suspend fun onActionProcessed(state: S, action: A, nextState: S) {}
+    suspend fun onEventEmitted(state: S, event: E) {}
+    suspend fun onStateEntered(state: S) {}
+    suspend fun onStateExited(state: S) {}
+    suspend fun onStateChanged(state: S, prevState: S) {}
 }
