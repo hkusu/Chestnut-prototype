@@ -89,53 +89,53 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
 
     private suspend fun processActonDispatch(state: S, action: A): S {
         middlewares.forEach {
-            it.beforeActionDispatch(state, action)
+            it.runBeforeActionDispatch(state, action)
         }
         val nextState = onDispatched(state, action) { processEventEmit(state, it) }
         middlewares.forEach {
-            it.afterActionDispatch(state, action, nextState)
+            it.runAfterActionDispatch(state, action, nextState)
         }
         return nextState
     }
 
     private suspend fun processEventEmit(state: S, event: E) {
         middlewares.forEach {
-            it.beforeEventEmit(state, event)
+            it.runBeforeEventEmit(state, event)
         }
         _event.emit(event)
         middlewares.forEach {
-            it.afterEventEmit(state, event)
+            it.runAfterEventEmit(state, event)
         }
     }
 
     private suspend fun processStateEnter(state: S): S {
         middlewares.forEach {
-            it.beforeStateEnter(state)
+            it.runBeforeStateEnter(state)
         }
         val nextState = onEntered(state) { processEventEmit(state, it) }
         middlewares.forEach {
-            it.afterStateEnter(state, nextState)
+            it.runAfterStateEnter(state, nextState)
         }
         return nextState
     }
 
     private suspend fun processStateExit(state: S) {
         middlewares.forEach {
-            it.beforeStateExit(state)
+            it.runBeforeStateExit(state)
         }
         onExited(state) { processEventEmit(state, it) }
         middlewares.forEach {
-            it.afterStateExit(state)
+            it.runAfterStateExit(state)
         }
     }
 
     private suspend fun processStateChange(state: S, nextState: S) {
         middlewares.forEach {
-            it.beforeStateChange(state, nextState)
+            it.runBeforeStateChange(state, nextState)
         }
         _state.update { nextState }
         middlewares.forEach {
-            it.afterStateChange(nextState, state)
+            it.runAfterStateChange(nextState, state)
         }
     }
 

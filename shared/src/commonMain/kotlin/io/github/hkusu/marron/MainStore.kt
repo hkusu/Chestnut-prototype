@@ -22,23 +22,23 @@ class MainStore(
 ) {
     override val middlewares: List<Middleware<MainState, MainAction, MainEvent>> = listOf(
         object : Middleware<MainState, MainAction, MainEvent> {
-            override suspend fun afterActionDispatch(state: MainState, action: MainAction, nextState: MainState) {
+            override suspend fun runAfterActionDispatch(state: MainState, action: MainAction, nextState: MainState) {
                 println("Action: $action .. $state")
             }
 
-            override suspend fun afterEventEmit(state: MainState, event: MainEvent) {
+            override suspend fun runAfterEventEmit(state: MainState, event: MainEvent) {
                 println("Event: $event .. $state")
             }
 
-            override suspend fun afterStateChange(state: MainState, prevState: MainState) {
+            override suspend fun runAfterStateChange(state: MainState, prevState: MainState) {
                 println("State updated: $state")
             }
 
-            override suspend fun afterStateEnter(state: MainState, nextState: MainState) {
+            override suspend fun runAfterStateEnter(state: MainState, nextState: MainState) {
                 println("Enter: $state")
             }
 
-            override suspend fun afterStateExit(state: MainState) {
+            override suspend fun runAfterStateExit(state: MainState) {
                 println("Exit: $state")
             }
         },
