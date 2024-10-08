@@ -74,7 +74,7 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
             processStateEnter(state)
         }
 
-        if (state::class.qualifiedName != nextState::class.qualifiedName) {
+        if (state::class != nextState::class) {
             processStateExit(state)
         }
 
@@ -82,7 +82,7 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
             processStateChange(state, nextState)
         }
 
-        if (state::class.qualifiedName != nextState::class.qualifiedName) {
+        if (state::class != nextState::class) {
             processAction(nextState)
         }
     }
