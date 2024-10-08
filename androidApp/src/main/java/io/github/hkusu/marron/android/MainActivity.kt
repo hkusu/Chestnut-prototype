@@ -26,7 +26,6 @@ class MainActivity : ComponentActivity() {
         store.dispatch(MainAction.Click(99))
         store.dispatch(MainAction.Click(99))
 
-
         setContent {
             MyApplicationTheme {
                 Surface(

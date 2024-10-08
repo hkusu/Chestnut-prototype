@@ -1,7 +1,7 @@
 package io.github.hkusu.marron
 
 import io.github.hkusu.marron.tarte.Action
-import io.github.hkusu.marron.tarte.DefaultStore
+import io.github.hkusu.marron.tarte.BaseStore
 import io.github.hkusu.marron.tarte.Event
 import io.github.hkusu.marron.tarte.Middleware
 import io.github.hkusu.marron.tarte.State
@@ -16,7 +16,7 @@ class MainStore(
     coroutineScope: CoroutineScope, // 基本は viewModelScope を渡す想定
     // 外から Middleware を渡す場合
     //    override val middlewares: List<Middleware<MainState, MainAction, MainEvent>>
-) : DefaultStore<MainState, MainAction, MainEvent>(
+) : BaseStore<MainState, MainAction, MainEvent>(
     initialState = MainState.Initial,
     coroutineScope = coroutineScope,
 ) {
@@ -46,7 +46,7 @@ class MainStore(
 
     init {
         // 本当は Activity の onCreate() とかでやった方がよさそう
-        start()
+//        start()
     }
 
     override suspend fun onEntered(state: MainState, emit: EventEmit<MainEvent>): MainState = when (state) {

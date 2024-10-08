@@ -2,7 +2,6 @@ package io.github.hkusu.marron.tarte
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -15,15 +14,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-abstract class DefaultStore<S : State, A : Action, E : Event>(
+abstract class BaseStore<S : State, A : Action, E : Event>(
     private val initialState: S,
-    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()), // CoroutineExceptionHandlerは自前で挟んでもらう
+    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob()),
 ) : Store<S, A, E> {
     private val _state: MutableStateFlow<S> = MutableStateFlow(initialState)
-    override val state: StateFlow<S> = _state // Compose で購読
+    override val state: StateFlow<S> by lazy {
+        coroutineScope.launch {
+            mutex.withLock {
+                processAction(initialState)
+            }
+        }
+        _state
+    }
 
     private val _event: MutableSharedFlow<E> = MutableSharedFlow()
-    override val event: Flow<E> = _event // Compose で購読
+    override val event: Flow<E> = _event
 
     override val currentState: S get() = _state.value
 
@@ -31,17 +37,8 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
 
     private val mutex = Mutex()
 
-    override fun start() {
-        coroutineScope.launch {
-            mutex.withLock {
-                if (_state.value == initialState) {
-                    processAction(initialState)
-                }
-            }
-        }
-    }
-
-    override fun dispatch(action: A) { // ユーザによる操作. Compose の画面から叩く
+    override fun dispatch(action: A) {
+        state // initialize if need
         coroutineScope.launch {
             mutex.withLock {
                 processAction(_state.value, action)
@@ -62,7 +59,6 @@ abstract class DefaultStore<S : State, A : Action, E : Event>(
 
     protected open suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S = state
 
-    // viseModelScope のような auto close の CoroutinesScope 以外の場合に利用
     protected fun dispose() {
         coroutineScope.cancel()
     }
