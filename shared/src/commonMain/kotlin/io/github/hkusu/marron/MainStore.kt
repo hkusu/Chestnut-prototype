@@ -42,7 +42,7 @@ class MainStore(
                 println("Exit: $state")
             }
 
-            override suspend fun runAfterErrorHandle(state: MainState, throwable: Throwable) {
+            override suspend fun runAfterErrorHandle(state: MainState, nextState: MainState, throwable: Throwable) {
                 println("Error: $throwable")
             }
         },
@@ -80,9 +80,17 @@ class MainStore(
         else -> null
     } ?: state
 
-    override suspend fun onError(state: MainState, throwable: Throwable, emit: EventEmit<MainEvent>) {
-        emit(MainEvent.ShowToast("エラー"))
-    }
+    override suspend fun onError(state: MainState, throwable: Throwable, emit: EventEmit<MainEvent>): MainState = when (state) {
+        is MainState.Loading -> {
+            emit(MainEvent.ShowToast("エラー"))
+            MainState.Stable(
+                dataList = emptyList(),
+                clickCounter = 100,
+            )
+        }
+
+        else -> null
+    } ?: state
 }
 
 sealed interface MainState : State {

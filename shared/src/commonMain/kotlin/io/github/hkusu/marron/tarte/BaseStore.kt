@@ -43,7 +43,7 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
             throw IllegalStateException("exception occurred during error handling in Tarte", exception)
         }
         coroutineScope.launch(localExceptionHandler) {
-            processErrorHandle(_state.value, exception)
+            processAction(_state.value, throwable = exception)
         }
     }
 
@@ -69,15 +69,17 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
 
     protected open suspend fun onDispatch(state: S, action: A, emit: EventEmit<E>): S = state
 
-    protected open suspend fun onError(state: S, throwable: Throwable, emit: EventEmit<E>) {}
+    protected open suspend fun onError(state: S, throwable: Throwable, emit: EventEmit<E>): S = state
 
     protected fun dispose() {
         coroutineScope.cancel()
     }
 
-    private suspend fun processAction(state: S, action: A? = null) {
+    private suspend fun processAction(state: S, action: A? = null, throwable: Throwable? = null) {
         val nextState = action?.run {
             processActonDispatch(state, action)
+        } ?: throwable?.run {
+            processErrorHandle(state, throwable)
         } ?: run {
             processStateEnter(state)
         }
@@ -147,14 +149,15 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
         }
     }
 
-    private suspend fun processErrorHandle(state: S, throwable: Throwable) {
+    private suspend fun processErrorHandle(state: S, throwable: Throwable): S {
         middlewares.forEach {
             it.runBeforeErrorHandle(state, throwable)
         }
-        onError(state, throwable) { processEventEmit(state, it) }
+        val nextState = onError(state, throwable) { processEventEmit(state, it) }
         middlewares.forEach {
-            it.runAfterErrorHandle(state, throwable)
+            it.runAfterErrorHandle(state, nextState, throwable)
         }
+        return nextState
     }
 
     protected fun interface EventEmit<E> {
