@@ -41,15 +41,14 @@ class MainStore(
             override suspend fun runAfterStateExit(state: MainState) {
                 println("Exit: $state")
             }
+
+            override suspend fun runAfterErrorHandle(state: MainState, throwable: Throwable) {
+                println("Error: $throwable")
+            }
         },
     )
 
-    init {
-        // 本当は Activity の onCreate() とかでやった方がよさそう
-//        start()
-    }
-
-    override suspend fun onEntered(state: MainState, emit: EventEmit<MainEvent>): MainState = when (state) {
+    override suspend fun onEnter(state: MainState, emit: EventEmit<MainEvent>): MainState = when (state) {
         MainState.Initial -> {
             // すぐさま Loading に
             MainState.Loading
@@ -65,10 +64,10 @@ class MainStore(
         else -> null
     } ?: state
 
-    override suspend fun onExited(state: MainState, emit: EventEmit<MainEvent>) {
+    override suspend fun onExit(state: MainState, emit: EventEmit<MainEvent>) {
     }
 
-    override suspend fun onDispatched(state: MainState, action: MainAction, emit: EventEmit<MainEvent>): MainState = when (state) {
+    override suspend fun onDispatch(state: MainState, action: MainAction, emit: EventEmit<MainEvent>): MainState = when (state) {
         is MainState.Stable -> when (action) { // Compose で state.dataList のデータを画面へ描画する
             is MainAction.Click -> {
                 // イベント発行例
@@ -80,6 +79,10 @@ class MainStore(
 
         else -> null
     } ?: state
+
+    override suspend fun onError(state: MainState, throwable: Throwable, emit: EventEmit<MainEvent>) {
+        emit(MainEvent.ShowToast("エラー"))
+    }
 }
 
 sealed interface MainState : State {

@@ -1,5 +1,6 @@
 package io.github.hkusu.marron.tarte
 
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,7 +21,7 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
 ) : Store<S, A, E> {
     private val _state: MutableStateFlow<S> = MutableStateFlow(initialState)
     override val state: StateFlow<S> by lazy {
-        coroutineScope.launch {
+        coroutineScope.launch(exceptionHandler) {
             mutex.withLock {
                 processAction(initialState)
             }
@@ -37,9 +38,18 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
 
     private val mutex = Mutex()
 
+    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
+        val localExceptionHandler = CoroutineExceptionHandler { _, _ ->
+            throw IllegalStateException("exception occurred during error handling in Tarte", exception)
+        }
+        coroutineScope.launch(localExceptionHandler) {
+            processErrorHandle(_state.value, exception)
+        }
+    }
+
     override fun dispatch(action: A) {
         state // initialize if need
-        coroutineScope.launch {
+        coroutineScope.launch(exceptionHandler) {
             mutex.withLock {
                 processAction(_state.value, action)
             }
@@ -53,11 +63,13 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
         }
     }
 
-    protected open suspend fun onEntered(state: S, emit: EventEmit<E>): S = state
+    protected open suspend fun onEnter(state: S, emit: EventEmit<E>): S = state
 
-    protected open suspend fun onExited(state: S, emit: EventEmit<E>) {}
+    protected open suspend fun onExit(state: S, emit: EventEmit<E>) {}
 
-    protected open suspend fun onDispatched(state: S, action: A, emit: EventEmit<E>): S = state
+    protected open suspend fun onDispatch(state: S, action: A, emit: EventEmit<E>): S = state
+
+    protected open suspend fun onError(state: S, throwable: Throwable, emit: EventEmit<E>) {}
 
     protected fun dispose() {
         coroutineScope.cancel()
@@ -87,7 +99,7 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
         middlewares.forEach {
             it.runBeforeActionDispatch(state, action)
         }
-        val nextState = onDispatched(state, action) { processEventEmit(state, it) }
+        val nextState = onDispatch(state, action) { processEventEmit(state, it) }
         middlewares.forEach {
             it.runAfterActionDispatch(state, action, nextState)
         }
@@ -108,7 +120,7 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
         middlewares.forEach {
             it.runBeforeStateEnter(state)
         }
-        val nextState = onEntered(state) { processEventEmit(state, it) }
+        val nextState = onEnter(state) { processEventEmit(state, it) }
         middlewares.forEach {
             it.runAfterStateEnter(state, nextState)
         }
@@ -119,7 +131,7 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
         middlewares.forEach {
             it.runBeforeStateExit(state)
         }
-        onExited(state) { processEventEmit(state, it) }
+        onExit(state) { processEventEmit(state, it) }
         middlewares.forEach {
             it.runAfterStateExit(state)
         }
@@ -132,6 +144,16 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
         _state.update { nextState }
         middlewares.forEach {
             it.runAfterStateChange(nextState, state)
+        }
+    }
+
+    private suspend fun processErrorHandle(state: S, throwable: Throwable) {
+        middlewares.forEach {
+            it.runBeforeErrorHandle(state, throwable)
+        }
+        onError(state, throwable) { processEventEmit(state, it) }
+        middlewares.forEach {
+            it.runAfterErrorHandle(state, throwable)
         }
     }
 
