@@ -1,6 +1,5 @@
 package io.github.hkusu.marron.tarte
 
-import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,9 +20,9 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
 ) : Store<S, A, E> {
     private val _state: MutableStateFlow<S> = MutableStateFlow(initialState)
     override val state: StateFlow<S> by lazy {
-        coroutineScope.launch(exceptionHandler) {
+        coroutineScope.launch {
             mutex.withLock {
-                processAction(initialState)
+                onStateEntered(initialState)
             }
         }
         _state
@@ -38,20 +37,11 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
 
     private val mutex = Mutex()
 
-    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
-        val localExceptionHandler = CoroutineExceptionHandler { _, _ ->
-            throw IllegalStateException("exception occurred during error handling in Tarte", exception)
-        }
-        coroutineScope.launch(localExceptionHandler) {
-            processAction(_state.value, throwable = exception)
-        }
-    }
-
     override fun dispatch(action: A) {
         state // initialize if need
-        coroutineScope.launch(exceptionHandler) {
+        coroutineScope.launch {
             mutex.withLock {
-                processAction(_state.value, action)
+                onActionDispatched(_state.value, action)
             }
         }
     }
@@ -75,25 +65,67 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
         coroutineScope.cancel()
     }
 
-    private suspend fun processAction(state: S, action: A? = null, throwable: Throwable? = null) {
-        val nextState = action?.run {
-            processActonDispatch(state, action)
-        } ?: throwable?.run {
-            processErrorHandle(state, throwable)
-        } ?: run {
-            processStateEnter(state)
-        }
+    private suspend fun onActionDispatched(state: S, action: A) {
+        try {
+            val nextState = processActonDispatch(state, action)
 
-        if (state::class != nextState::class) {
-            processStateExit(state)
-        }
+            if (state::class != nextState::class) {
+                processStateExit(state)
+            }
 
-        if (state != nextState) {
-            processStateChange(state, nextState)
-        }
+            if (state != nextState) {
+                processStateChange(state, nextState)
+            }
 
-        if (state::class != nextState::class) {
-            processAction(nextState)
+            if (state::class != nextState::class) {
+                onStateEntered(nextState)
+            }
+        } catch (t: Throwable) {
+            onErrorOccurred(_state.value, t)
+        }
+    }
+
+    private suspend fun onStateEntered(state: S, inErrorHandling: Boolean = false) {
+        try {
+            val nextState = processStateEnter(state)
+
+            if (state::class != nextState::class) {
+                processStateExit(state)
+            }
+
+            if (state != nextState) {
+                processStateChange(state, nextState)
+            }
+
+            if (state::class != nextState::class) {
+                onStateEntered(nextState, inErrorHandling = inErrorHandling)
+            }
+        } catch (t: Throwable) {
+            if (!inErrorHandling) {
+                onErrorOccurred(_state.value, t)
+            } else {
+                printNote(t)
+            }
+        }
+    }
+
+    private suspend fun onErrorOccurred(state: S, throwable: Throwable) {
+        try {
+            val nextState = processError(state, throwable)
+
+            if (state::class != nextState::class) {
+                processStateExit(state)
+            }
+
+            if (state != nextState) {
+                processStateChange(state, nextState)
+            }
+
+            if (state::class != nextState::class) {
+                onStateEntered(nextState, inErrorHandling = true)
+            }
+        } catch (t: Throwable) {
+            printNote(t)
         }
     }
 
@@ -149,15 +181,19 @@ abstract class BaseStore<S : State, A : Action, E : Event>(
         }
     }
 
-    private suspend fun processErrorHandle(state: S, throwable: Throwable): S {
+    private suspend fun processError(state: S, throwable: Throwable): S {
         middlewares.forEach {
-            it.runBeforeErrorHandle(state, throwable)
+            it.runBeforeError(state, throwable)
         }
         val nextState = onError(state, throwable) { processEventEmit(state, it) }
         middlewares.forEach {
-            it.runAfterErrorHandle(state, nextState, throwable)
+            it.runAfterError(state, nextState, throwable)
         }
         return nextState
+    }
+
+    private fun printNote(throwable: Throwable) {
+        println("[Tarte] An error occurred during error handling. $throwable")
     }
 
     protected fun interface EventEmit<E> {
