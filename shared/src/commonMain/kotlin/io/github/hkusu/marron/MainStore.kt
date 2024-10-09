@@ -17,7 +17,7 @@ class MainStore(
     // 外から Middleware を渡す場合
     //    override val middlewares: List<Middleware<MainState, MainAction, MainEvent>>
 ) : BaseStore<MainState, MainAction, MainEvent>(
-    initialState = MainState.Initial,
+    initialState = MainState.Welcome,
     coroutineScope = coroutineScope,
 ) {
     override val middlewares: List<Middleware<MainState, MainAction, MainEvent>> = listOf(
@@ -42,15 +42,16 @@ class MainStore(
                 println("Exit: $state")
             }
 
-            override suspend fun runAfterErrorHandle(state: MainState, nextState: MainState, throwable: Throwable) {
+            override suspend fun runAfterError(state: MainState, nextState: MainState, throwable: Throwable) {
                 println("Error: $throwable")
             }
         },
     )
 
     override suspend fun onEnter(state: MainState, emit: EventEmit<MainEvent>): MainState = when (state) {
-        MainState.Initial -> {
-            // すぐさま Loading に
+        MainState.Welcome -> {
+            delay(2_000)
+            // ２病後に Loading に
             MainState.Loading
         }
 
@@ -64,14 +65,12 @@ class MainStore(
         else -> null
     } ?: state
 
-    override suspend fun onExit(state: MainState, emit: EventEmit<MainEvent>) {
-    }
-
     override suspend fun onDispatch(state: MainState, action: MainAction, emit: EventEmit<MainEvent>): MainState = when (state) {
         is MainState.Stable -> when (action) { // Compose で state.dataList のデータを画面へ描画する
             is MainAction.Click -> {
                 // イベント発行例
                 emit(MainEvent.ShowToast("クリクされました"))
+
                 // state の更新は data class の copy で
                 state.copy(clickCounter = state.clickCounter + 1)
             }
@@ -80,26 +79,18 @@ class MainStore(
         else -> null
     } ?: state
 
-    override suspend fun onError(state: MainState, throwable: Throwable, emit: EventEmit<MainEvent>): MainState = when (state) {
-        is MainState.Loading -> {
-            emit(MainEvent.ShowToast("エラー"))
-            MainState.Stable(
-                dataList = emptyList(),
-                clickCounter = 100,
-            )
-        }
-
-        else -> null
-    } ?: state
+    override suspend fun onError(state: MainState, throwable: Throwable, emit: EventEmit<MainEvent>): MainState = MainState.Error
 }
 
 sealed interface MainState : State {
-    data object Initial : MainState
+    data object Welcome : MainState
     data object Loading : MainState
     data class Stable(
         val dataList: List<String>,
         val clickCounter: Int = 0,
     ) : MainState
+
+    data object Error : MainState
 }
 
 sealed interface MainAction : Action {
